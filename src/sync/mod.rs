@@ -8,6 +8,7 @@ use crate::{
 
 use ethers::providers::Middleware;
 
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use spinoff::{spinners, Color, Spinner};
 use std::{panic::resume_unwind, sync::Arc};
 pub mod checkpoint;
@@ -30,17 +31,55 @@ pub async fn sync_amms<M: 'static + Middleware>(
     let mut aggregated_amms: Vec<AMM> = vec![];
     let mut handles = vec![];
 
+    //Initialize multi progress bar
+    let multi_progress_bar = MultiProgress::new();
+
+    let factories_len = factories.len();
+
     //For each dex supplied, get all pair created events and get reserve values
     for factory in factories.clone() {
         let middleware = middleware.clone();
+        let progress_bar = multi_progress_bar.add(ProgressBar::new(0));
 
         //Spawn a new thread to get all pools and sync data for each dex
         handles.push(tokio::spawn(async move {
+            progress_bar.set_style(
+                ProgressStyle::with_template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                    .expect("Error when setting progress bar style")
+                    .progress_chars("##-"),
+            );
+
+            //Get all of the pools from the dex
+            progress_bar.set_message(format!("Getting all AMM pools from: {}", factory.address()));
+
             //Get all of the amms from the factory
             let mut amms: Vec<AMM> = factory
-                .get_all_amms(Some(current_block), middleware.clone(), step)
+                .get_all_amms(
+                    Some(current_block),
+                    progress_bar.clone(),
+                    middleware.clone(),
+                    step,
+                )
                 .await?;
-            populate_amms(&mut amms, current_block, middleware.clone()).await?;
+
+            progress_bar.reset();
+            progress_bar.set_style(
+                ProgressStyle::with_template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                    .expect("Error when setting progress bar style")
+                    .progress_chars("##-"),
+            );
+
+            //Get all of the pool data and sync the pool
+            progress_bar.set_message(format!("Getting all pool data for: {}", factory.address()));
+            progress_bar.set_length(factories_len as u64);
+
+            populate_amms(
+                &mut amms,
+                current_block,
+                progress_bar.clone(),
+                middleware.clone(),
+            )
+            .await?;
 
             //Clean empty pools
             amms = remove_empty_amms(amms);
@@ -103,6 +142,7 @@ pub fn amms_are_congruent(amms: &[AMM]) -> bool {
 pub async fn populate_amms<M: Middleware>(
     amms: &mut [AMM],
     block_number: u64,
+    progress_bar: ProgressBar,
     middleware: Arc<M>,
 ) -> Result<(), AMMError<M>> {
     if amms_are_congruent(amms) {
@@ -115,6 +155,8 @@ pub async fn populate_amms<M: Middleware>(
                         middleware.clone(),
                     )
                     .await?;
+
+                    progress_bar.inc(step as u64);
                 }
             }
 
@@ -127,6 +169,8 @@ pub async fn populate_amms<M: Middleware>(
                         middleware.clone(),
                     )
                     .await?;
+
+                    progress_bar.inc(step as u64);
                 }
             }
 

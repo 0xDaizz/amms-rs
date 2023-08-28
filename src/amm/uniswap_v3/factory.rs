@@ -82,11 +82,13 @@ impl AutomatedMarketMakerFactory for UniswapV3Factory {
     async fn get_all_amms<M: 'static + Middleware>(
         &self,
         to_block: Option<u64>,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
         step: u64,
     ) -> Result<Vec<AMM>, AMMError<M>> {
         if let Some(block) = to_block {
-            self.get_all_pools_from_logs(block, step, middleware).await
+            self.get_all_pools_from_logs(block, step, progress_bar, middleware)
+                .await
         } else {
             return Err(AMMError::BlockNumberNotFound);
         }
@@ -151,6 +153,7 @@ impl UniswapV3Factory {
         self,
         to_block: u64,
         step: u64,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<Vec<AMM>, AMMError<M>> {
         //Unwrap can be used here because the creation block was verified within `Dex::new()`
@@ -158,11 +161,15 @@ impl UniswapV3Factory {
         let mut aggregated_amms: HashMap<H160, AMM> = HashMap::new();
         let mut ordered_logs: BTreeMap<U64, Vec<Log>> = BTreeMap::new();
 
+        //Initialize the progress bar message
+        progress_bar.set_length(to_block - from_block);
+
         let mut handles = vec![];
 
         let mut tasks = 0;
         while from_block < to_block {
             let middleware = middleware.clone();
+            let progress_bar = progress_bar.clone();
 
             let mut target_block = from_block + step - 1;
             if target_block > to_block {
@@ -188,6 +195,9 @@ impl UniswapV3Factory {
             }));
 
             from_block += step;
+
+            //Increment the progress bar by the step
+            progress_bar.inc(step);
 
             tasks += 1;
             //Here we are limiting the number of green threads that can be spun up to not have the node time out

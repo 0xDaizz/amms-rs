@@ -54,11 +54,15 @@ impl UniswapV2Factory {
 
     pub async fn get_all_pairs_via_batched_calls<M: Middleware>(
         &self,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<Vec<AMM>, AMMError<M>> {
         let factory = IUniswapV2Factory::new(self.address, middleware.clone());
 
         let pairs_length: U256 = factory.all_pairs_length().call().await?;
+
+        //Initialize the progress bar message
+        progress_bar.set_length(pairs_length.as_u64());
 
         let mut pairs = vec![];
         let step = 766; //max batch size for this call until codesize is too large
@@ -87,6 +91,8 @@ impl UniswapV2Factory {
             } else {
                 idx_to = idx_to + step;
             }
+
+            progress_bar.inc(step as u64);
         }
 
         let mut amms = vec![];
@@ -145,10 +151,12 @@ impl AutomatedMarketMakerFactory for UniswapV2Factory {
     async fn get_all_amms<M: Middleware>(
         &self,
         _to_block: Option<u64>,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
         _step: u64,
     ) -> Result<Vec<AMM>, AMMError<M>> {
-        self.get_all_pairs_via_batched_calls(middleware).await
+        self.get_all_pairs_via_batched_calls(progress_bar, middleware)
+            .await
     }
 
     async fn populate_amm_data<M: Middleware>(

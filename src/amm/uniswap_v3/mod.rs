@@ -1095,7 +1095,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_simulate_swap_0() -> eyre::Result<()> {
         let rpc_endpoint = std::env::var("ETHEREUM_RPC_ENDPOINT")?;
         let middleware = Arc::new(Provider::<Http>::try_from(rpc_endpoint)?);
