@@ -66,7 +66,7 @@ pub async fn sync_amms<M: 'static + Middleware>(
 
             //Get all of the pool data and sync the pool
             progress_bar.set_message(format!("Getting all pool data for: {}", factory.address()));
-            progress_bar.set_length(current_block - factory.creation_block() as u64);
+            progress_bar.set_length(amms.len() as u64);
 
             populate_amms(
                 &mut amms,
