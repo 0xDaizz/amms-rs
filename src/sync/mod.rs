@@ -31,8 +31,6 @@ pub async fn sync_amms<M: 'static + Middleware>(
     //Initialize multi progress bar
     let multi_progress_bar = MultiProgress::new();
 
-    let factories_len = factories.len();
-
     //For each dex supplied, get all pair created events and get reserve values
     for factory in factories.clone() {
         let middleware = middleware.clone();
@@ -47,7 +45,7 @@ pub async fn sync_amms<M: 'static + Middleware>(
             );
 
             //Get all of the pools from the dex
-            progress_bar.set_message(format!("Getting all AMM pools from: {}", factory.address()));
+            progress_bar.set_message(format!("Getting all pools from: {}", factory.address()));
 
             //Get all of the amms from the factory
             let mut amms: Vec<AMM> = factory
@@ -68,7 +66,7 @@ pub async fn sync_amms<M: 'static + Middleware>(
 
             //Get all of the pool data and sync the pool
             progress_bar.set_message(format!("Getting all pool data for: {}", factory.address()));
-            progress_bar.set_length(factories_len as u64);
+            progress_bar.set_length(current_block - factory.creation_block() as u64);
 
             populate_amms(
                 &mut amms,
