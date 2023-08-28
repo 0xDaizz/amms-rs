@@ -8,6 +8,7 @@ use ethers::{
     types::{Log, H160, H256, U256},
 };
 
+use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -154,11 +155,14 @@ impl AutomatedMarketMakerFactory for UniswapV2Factory {
         &self,
         amms: &mut [AMM],
         _block_number: Option<u64>,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<(), AMMError<M>> {
         let step = 127; //Max batch size for call
         for amm_chunk in amms.chunks_mut(step) {
             batch_request::get_amm_data_batch_request(amm_chunk, middleware.clone()).await?;
+
+            progress_bar.inc(step as u64);
         }
         Ok(())
     }

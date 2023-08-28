@@ -10,6 +10,7 @@ use ethers::{
     providers::Middleware,
     types::{BlockNumber, Filter, Log, H160, H256, U256, U64},
 };
+use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -95,6 +96,7 @@ impl AutomatedMarketMakerFactory for UniswapV3Factory {
         &self,
         amms: &mut [AMM],
         block_number: Option<u64>,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<(), AMMError<M>> {
         if let Some(block_number) = block_number {
@@ -106,6 +108,8 @@ impl AutomatedMarketMakerFactory for UniswapV3Factory {
                     middleware.clone(),
                 )
                 .await?;
+
+                progress_bar.inc(step as u64);
             }
         } else {
             return Err(AMMError::BlockNumberNotFound);

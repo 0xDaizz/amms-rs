@@ -7,6 +7,8 @@ use std::{
 
 use ethers::{providers::Middleware, types::H160};
 
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+
 use serde::{Deserialize, Serialize};
 
 use tokio::task::JoinHandle;
@@ -60,6 +62,9 @@ pub async fn sync_amms_from_checkpoint<M: 'static + Middleware>(
         .map_err(AMMError::MiddlewareError)?
         .as_u64();
 
+    //Initialize multi progress bar
+    let multi_progress_bar = MultiProgress::new();
+
     let checkpoint: Checkpoint =
         serde_json::from_str(read_to_string(path_to_checkpoint)?.as_str())?;
 
@@ -75,6 +80,7 @@ pub async fn sync_amms_from_checkpoint<M: 'static + Middleware>(
             batch_sync_amms_from_checkpoint(
                 uniswap_v2_pools,
                 Some(current_block),
+                multi_progress_bar.add(ProgressBar::new(0)),
                 middleware.clone(),
             )
             .await,
@@ -87,6 +93,7 @@ pub async fn sync_amms_from_checkpoint<M: 'static + Middleware>(
             batch_sync_amms_from_checkpoint(
                 uniswap_v3_pools,
                 Some(current_block),
+                multi_progress_bar.add(ProgressBar::new(0)),
                 middleware.clone(),
             )
             .await,
@@ -108,6 +115,7 @@ pub async fn sync_amms_from_checkpoint<M: 'static + Middleware>(
             checkpoint.block_number,
             current_block,
             step,
+            multi_progress_bar,
             middleware.clone(),
         )
         .await,
@@ -143,6 +151,7 @@ pub async fn get_new_amms_from_range<M: 'static + Middleware>(
     from_block: u64,
     to_block: u64,
     step: u64,
+    multi_progress_bar: MultiProgress,
     middleware: Arc<M>,
 ) -> Vec<JoinHandle<Result<Vec<AMM>, AMMError<M>>>> {
     //Create the filter with all the pair created events
@@ -151,15 +160,51 @@ pub async fn get_new_amms_from_range<M: 'static + Middleware>(
 
     for factory in factories.into_iter() {
         let middleware = middleware.clone();
+        let progress_bar = multi_progress_bar.add(ProgressBar::new(0));
 
         //Spawn a new thread to get all pools and sync data for each dex
         handles.push(tokio::spawn(async move {
+            progress_bar.set_style(
+                ProgressStyle::with_template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                    .expect("Error when setting progress bar style")
+                    .progress_chars("##-"),
+            );
+
+            //Get all of the pools from the dex
+            progress_bar.set_message(format!("Getting new all pools from: {}", factory.address()));
+
             let mut amms = factory
-                .get_all_pools_from_logs(from_block, to_block, step, middleware.clone())
+                .get_all_pools_from_logs(
+                    from_block,
+                    to_block,
+                    step,
+                    progress_bar.clone(),
+                    middleware.clone(),
+                )
                 .await?;
 
+            progress_bar.reset();
+            progress_bar.set_style(
+                ProgressStyle::with_template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                    .expect("Error when setting progress bar style")
+                    .progress_chars("##-"),
+            );
+
+            //Get all of the pool data and sync the pool
+            progress_bar.set_message(format!(
+                "Getting all pool data for new pools from: {}",
+                factory.address()
+            ));
+
+            progress_bar.set_length(amms.len() as u64);
+
             factory
-                .populate_amm_data(&mut amms, Some(to_block), middleware.clone())
+                .populate_amm_data(
+                    &mut amms,
+                    Some(to_block),
+                    progress_bar.clone(),
+                    middleware.clone(),
+                )
                 .await?;
 
             //Clean empty pools
@@ -175,6 +220,7 @@ pub async fn get_new_amms_from_range<M: 'static + Middleware>(
 pub async fn batch_sync_amms_from_checkpoint<M: 'static + Middleware>(
     mut amms: Vec<AMM>,
     block_number: Option<u64>,
+    progress_bar: ProgressBar,
     middleware: Arc<M>,
 ) -> JoinHandle<Result<Vec<AMM>, AMMError<M>>> {
     let factory = match amms[0] {
@@ -194,11 +240,29 @@ pub async fn batch_sync_amms_from_checkpoint<M: 'static + Middleware>(
 
     //Spawn a new thread to get all pools and sync data for each dex
     tokio::spawn(async move {
+        progress_bar.set_style(
+            ProgressStyle::with_template("{msg} {bar:40.cyan/blue} {pos:>7}/{len:7}")
+                .expect("Error when setting progress bar style")
+                .progress_chars("##-"),
+        );
+        progress_bar.set_length(amms.len() as u64);
+
         if let Some(factory) = factory {
+            match factory {
+                Factory::UniswapV2Factory(_) => {
+                    progress_bar
+                        .set_message("Syncing all Uniswap V2 compatible AMMs from checkpoint");
+                }
+                Factory::UniswapV3Factory(_) => {
+                    progress_bar
+                        .set_message("Syncing all Uniswap V3 compatible AMMs from checkpoint");
+                }
+            }
+
             if amms_are_congruent(&amms) {
                 //Get all pool data via batched calls
                 factory
-                    .populate_amm_data(&mut amms, block_number, middleware)
+                    .populate_amm_data(&mut amms, block_number, progress_bar, middleware)
                     .await?;
 
                 //Clean empty pools
@@ -234,6 +298,7 @@ pub async fn get_new_pools_from_range<M: 'static + Middleware>(
     from_block: u64,
     to_block: u64,
     step: u64,
+    progress_bar: ProgressBar,
     middleware: Arc<M>,
 ) -> Vec<JoinHandle<Result<Vec<AMM>, AMMError<M>>>> {
     //Create the filter with all the pair created events
@@ -242,15 +307,27 @@ pub async fn get_new_pools_from_range<M: 'static + Middleware>(
 
     for factory in factories {
         let middleware = middleware.clone();
+        let progress_bar = progress_bar.clone();
 
         //Spawn a new thread to get all pools and sync data for each dex
         handles.push(tokio::spawn(async move {
             let mut pools = factory
-                .get_all_pools_from_logs(from_block, to_block, step, middleware.clone())
+                .get_all_pools_from_logs(
+                    from_block,
+                    to_block,
+                    step,
+                    progress_bar.clone(),
+                    middleware.clone(),
+                )
                 .await?;
 
             factory
-                .populate_amm_data(&mut pools, Some(to_block), middleware.clone())
+                .populate_amm_data(
+                    &mut pools,
+                    Some(to_block),
+                    progress_bar.clone(),
+                    middleware.clone(),
+                )
                 .await?;
 
             //Clean empty pools

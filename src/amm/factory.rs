@@ -5,6 +5,7 @@ use ethers::{
     providers::Middleware,
     types::{BlockNumber, Filter, Log, ValueOrArray, H160, H256, U64},
 };
+use indicatif::ProgressBar;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
@@ -33,6 +34,7 @@ pub trait AutomatedMarketMakerFactory {
         &self,
         amms: &mut [AMM],
         block_number: Option<u64>,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<(), AMMError<M>>;
 
@@ -109,15 +111,18 @@ impl AutomatedMarketMakerFactory for Factory {
         &self,
         amms: &mut [AMM],
         block_number: Option<u64>,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<(), AMMError<M>> {
         match self {
             Factory::UniswapV2Factory(factory) => {
-                factory.populate_amm_data(amms, None, middleware).await
+                factory
+                    .populate_amm_data(amms, None, progress_bar, middleware)
+                    .await
             }
             Factory::UniswapV3Factory(factory) => {
                 factory
-                    .populate_amm_data(amms, block_number, middleware)
+                    .populate_amm_data(amms, block_number, progress_bar, middleware)
                     .await
             }
         }
@@ -137,6 +142,7 @@ impl Factory {
         mut from_block: u64,
         to_block: u64,
         step: u64,
+        progress_bar: ProgressBar,
         middleware: Arc<M>,
     ) -> Result<Vec<AMM>, AMMError<M>> {
         let factory_address = self.address();
@@ -146,8 +152,13 @@ impl Factory {
         let mut tasks = 0;
         let mut aggregated_amms: Vec<AMM> = vec![];
 
+        //Initialize the progress bar message
+        progress_bar.set_length(to_block - from_block);
+
         while from_block < to_block {
             let middleware = middleware.clone();
+            let progress_bar = progress_bar.clone();
+
             let mut target_block = from_block + step - 1;
             if target_block > to_block {
                 target_block = to_block;
@@ -169,6 +180,10 @@ impl Factory {
             }));
 
             from_block += step;
+
+            //Increment the progress bar by the step
+            progress_bar.inc(step);
+
             tasks += 1;
             if tasks == TASK_LIMIT {
                 self.process_logs_from_handles(handles, &mut log_group)
