@@ -9,7 +9,6 @@ use crate::{
 use ethers::providers::Middleware;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use spinoff::{spinners, Color, Spinner};
 use std::{panic::resume_unwind, sync::Arc};
 pub mod checkpoint;
 
@@ -19,8 +18,6 @@ pub async fn sync_amms<M: 'static + Middleware>(
     checkpoint_path: Option<&str>,
     step: u64,
 ) -> Result<(Vec<AMM>, u64), AMMError<M>> {
-    let mut spinner = Spinner::new(spinners::Dots, "Syncing AMMs...", Color::Blue);
-
     let current_block = middleware
         .get_block_number()
         .await
@@ -121,7 +118,6 @@ pub async fn sync_amms<M: 'static + Middleware>(
             checkpoint_path,
         )?;
     }
-    spinner.success("AMMs synced");
 
     //Return the populated aggregated amms vec
     Ok((aggregated_amms, current_block))

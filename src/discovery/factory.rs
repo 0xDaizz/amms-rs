@@ -4,7 +4,6 @@ use ethers::{
     providers::Middleware,
     types::{Filter, H160, H256},
 };
-use spinoff::{spinners, Color, Spinner};
 
 use crate::{
     amm::{self, factory::Factory},
@@ -37,8 +36,6 @@ pub async fn discover_factories<M: Middleware>(
     middleware: Arc<M>,
     step: u64,
 ) -> Result<Vec<Factory>, AMMError<M>> {
-    let mut spinner = Spinner::new(spinners::Dots, "Discovering new factories...", Color::Blue);
-
     let mut event_signatures = vec![];
 
     for factory in factories {
@@ -111,6 +108,5 @@ pub async fn discover_factories<M: Middleware>(
         }
     }
 
-    spinner.success("All factories discovered");
     Ok(filtered_factories)
 }
